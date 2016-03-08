@@ -20,5 +20,8 @@
     "app/bower_components",
     "test",
     "tests"
-  ]
+  ],
+  "dependencies": {
+    "async": "~1.5.2"
+  }
 }
