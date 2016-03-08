@@ -3,124 +3,91 @@
  * https://github.com/AvraamMavridis
  */
 angular.module('metatags', [])
-  .provider('MetaTags',function(){
+  .provider('MetaTags', function() {
 
     var routes = {};
     var otherwise = {};
 
-    this.when = function(path, metatags){
+    this.when = function(path, metatags) {
       routes[path] = metatags;
       return this;
     };
 
-    this.otherwise = function(metatags){
+    this.otherwise = function(metatags) {
       otherwise = metatags;
       return this;
     };
 
-    var getMetaTags = function(path){
-      var info = {};
-      var routesArray = Object.keys(routes);
-      var routesLength = routesArray.length;
-      var placeholder = {};
-
-      for(var i = 0; i < routesLength; i++){
-
-        var routeName = routesArray[i];
-        var routeMetaTagsObject = routes[routeName];
-        var routeMetaTagsArray = Object.keys(routeMetaTagsObject);
-        var routeArgs = routeName.split('/').filter(Boolean);
-        var routeArgsLength = routeArgs.length;
-        var pathArgs = path.split('/').filter(Boolean);
-        var pathArgsLength = pathArgs.length;
-        var flag1 = true;
-        var flag2 = false;
-
-        if(routeArgsLength !== pathArgsLength){
-          continue;
-        }
-
-        for(var j = 0; j < pathArgsLength; j++){
-          if(routeArgs[j].indexOf(':') === 0){
-            placeholder[pathArgs[j]] = routeArgs[j];
-            continue;
-          }
-          if (pathArgs[j] !== routeArgs[j]){
-            placeholder = {};
-            flag1 = false;
-            break;
-          }
-        }
-
-        var routeMetaTagsLength = routeMetaTagsArray.length;
-        var placeHolderLength = Object.keys(placeholder).length;
-
-
-
-        if(placeHolderLength > 0){
-          for(var ii = 0; ii < routeMetaTagsLength; ii++){
-            var tag = routeMetaTagsArray[ii];
-            if(typeof(routeMetaTagsObject[tag]) === 'string')
-              info[tag] = routeMetaTagsObject[tag];
-            if(typeof(routeMetaTagsObject[tag]) === 'function'){
-               var functionResponse = routeMetaTagsObject[tag].apply(this, Object.keys(placeholder));
-              if(typeof(functionResponse) !== 'string')
-                throw new Error(routeMetaTagsObject[tag].toString() + ' should return a string');
-              else
-                info[tag] = functionResponse;
-            }
-          }
-
-          for(var p in placeholder){
-            for(var t in info){
-              info[t] = info[t].replace(placeholder[p], p);
-            }
-          }
-            return info;
-        }
-        else{
-            for (var o in otherwise) {
-                info[o] = otherwise[o];
-            }
-
-            if (routeArgs[routeArgsLength - 1] === pathArgs[routeArgsLength - 1]) {
-                flag2 = true;
-                break;
-            }
-        }
+    var getMetaTags = function(stateName) {
+      var metatags = routes[stateName];
+      if (!metatags) {
+        metatags = otherwise || {};
       }
-        if (flag1 && flag2) {
-            for (var o in routeMetaTagsObject) {
-                info[o] = routeMetaTagsObject[o];
-            }
-            return info;
-        } else {
-            return info;
-        }
+      return metatags;
     };
 
+    this.$get = ["$rootScope", function($rootScope) {
 
-    this.$get = ["$rootScope", "$location", function ($rootScope, $location){
+      var update = function(evt, toState) {
+        var metatags = getMetaTags(toState.name);
+        $rootScope.metatags = metatags;
+      };
 
-        var update = function(){
-          path = $location.path();
-          info = getMetaTags(path);
-          for(var tt in info){
-            $rootScope.metatags[tt] = info[tt];
-          }
+      return {
+        initialize: function() {
+          $rootScope.metatags = {};
+          $rootScope.$on('$stateChangeSuccess', update);
+        }
+      }
+    }];
+  })
+  .directive('metaTags', ['$document', '$q', function($document, $q) {
+    return {
+      restrict: 'A',
+      link: function(scope, el) {
+        var tags = {};
+        var updatePromise = $q.resolve();
+
+        var removeOldTags = function(metatags) {
+          var defer = $q.defer();
+          async.forEachOf(tags, function(tag, tagId, cb) {
+            if (!metatags[tagId]) {
+              tag.remove();
+              delete tags[tagId];
+            }
+            cb();
+          }, function() {
+            defer.resolve(metatags);
+          });
+          return defer.promise;
         };
 
-        return {
-          initialize: function(){
-            $rootScope.metatags = {};
-                try {
-                  angular.module('ngRoute');
-                  $rootScope.$on('$routeChangeSuccess', update);
-                } catch(err) {
-                  $rootScope.$on('$stateChangeSuccess', update);
-                }
-          }
-        }
-    }];
-  });
+        var insertOrUpdateTags = function(metatags) {
+          var defer = $q.defer();
+          async.forEachOf(metatags, function(value, tagId, cb) {
+            if (tagId === 'title') {
+              $document.prop('title', value);
+            } else {
+              var tag = tags[tagId];
+              if (!tag) {
+                tag = angular.element('<meta name="' + tagId + '" content="">');
+                el.append(tag);
+                tags[tagId] = tag;
+              }
+              tag.attr('content', value);
+            }
+            cb();
+          }, defer.resolve);
+          return defer.promise;
+        };
 
+        scope.$watch('metatags', function(metatags) {
+          updatePromise = updatePromise
+            .then(function() {
+              return removeOldTags(metatags)
+            })
+            .then(insertOrUpdateTags);
+        });
+      }
+    }
+  }]);
