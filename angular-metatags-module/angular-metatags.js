@@ -41,7 +41,7 @@ angular.module('metatags', [])
       }
     }];
   })
-  .directive('metaTags', ['$document', '$q', function($document, $q) {
+  .directive('metaTags', ['$document', '$q', '$location', function($document, $q, $location) {
     return {
       restrict: 'A',
       link: function(scope, el) {
@@ -63,6 +63,16 @@ angular.module('metatags', [])
         };
 
         var insertOrUpdateTags = function(metatags) {
+          var canonicalUrl = [$location.protocol(), '://', $location.host(), $location.path()]
+            .join('');
+          var canonicalTag = tags['canonical'];
+          if (!canonicalTag) {
+            canonicalTag = angular.element('<link rel="canonical" href="">');
+            el.append(canonicalTag);
+            tags['canonical'] = canonicalTag;
+          }
+          canonicalTag.attr('href', canonicalUrl);
+
           var defer = $q.defer();
           async.forEachOf(metatags, function(value, tagId, cb) {
             if (tagId === 'title') {
